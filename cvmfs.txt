@@ -1,0 +1,99 @@
+cat > /etc/yum.repos.d/cvmfs.repo <<'END'
+[cvmfs]
+name=cvmfs
+baseurl=https://cvmrepo.web.cern.ch/cvmrepo/yum/cvmfs/EL/$releasever/x86_64/
+gpgcheck=0
+END
+
+cat > /etc/yum.repos.d/cvmfs-kernel.repo <<'END'
+[cvmfs-kernel]
+name=cvmfs-kernel
+baseurl=https://cvmrepo.web.cern.ch/cvmrepo/yum/cvmfs-kernel/EL/$releasever/x86_64/
+gpgcheck=0
+END
+yum install -y kernel-2.6.32-573.3.1.el6.aufs21 aufs2-util
+
+yum install -y cvmfs cvmfs-server-2.1.20
+rpm -qa | grep cvmfs
+
+cat > /etc/cvmfs/s3.conf <<END
+CVMFS_S3_ACCOUNTS=1
+CVMFS_S3_ACCESS_KEY=<key>
+CVMFS_S3_SECRET_KEY=<secret>
+CVMFS_S3_BUCKETS_PER_ACCOUNT=1
+CVMFS_S3_HOST=s3-us-west-2.amazonaws.com
+CVMFS_S3_BUCKET=cvmfstest
+CVMFS_S3_MAX_NUMBER_OF_PARALLEL_CONNECTIONS=100
+END
+
+cvmfs_server mkfs -s /etc/cvmfs/s3.conf -w https://s3-us-west-2.amazonaws.com/cvmfstest sqre-test
+
+
+## creating a repo
+
+`cvmfs_server` enforces that apache is running.  It's not clear if this is actually used or if this is a sanity check.
+
+XXX if the name does not contain a dot (`.`) one will be appended to the name.
+
+```
+service httpd start
+```
+
+create the local repo
+
+```
+[root@el6 ~]# cvmfs_server mkfs sqre-test-local
+Owner of sqre-test-local. [root]: 
+Creating Configuration Files... done
+Creating CernVM-FS Master Key and Self-Signed Certificate... done
+Creating CernVM-FS Server Infrastructure... done
+Creating Backend Storage... done
+Creating Initial Repository... done
+Mounting CernVM-FS Storage... (aufs) done
+Allowing Replication of this Repository... done
+Initial commit... New CernVM-FS repository for sqre-test-local.
+
+Before you can install anything, call `cvmfs_server transaction`
+to enable write access on your repository. Then install your
+software in /cvmfs/sqre-test-local. as user root.
+Once you're happy, publish using `cvmfs_server publish`
+
+For client configuration, have a look at 'cvmfs_server info'
+
+If you go for production, backup you software signing keys in /etc/cvmfs/keys/!
+```
+
+start a transaction so it can be modified. Note that `.` appended to the repo name
+
+```
+cvmfs_server transaction sqre-test-local.
+```
+
+add content
+
+```
+mkdir -p /cvmfs/sqre-test-local./foo/v1.0.0
+cat > /cvmfs/sqre-test-local./foo/v1.0.0/foo.sh <<END
+echo "hello world"
+END
+chmod 755 /cvmfs/sqre-test-local./foo/v1.0.0/foo.sh
+touch /cvmfs/sqre-test-local./foo/v1.0.0/.cvmfscatalog
+# cvmfs_server publish sqre-test-local.
+Using auto tag 'generic-2015-10-22T18:31:00Z'
+Processing changes...
+Exporting repository manifest
+
+Waiting for upload of files before committing...
+Committing file catalogs...
+Tagging sqre-test-local.
+Flushing file system buffers
+Signing new manifest
+Remounting newly created repository revision
+```
+
+sanith check catalog creation
+
+```
+cvmfs_server list-catalogs sqre-test-local.
+```
+
